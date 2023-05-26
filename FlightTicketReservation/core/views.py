@@ -8,9 +8,9 @@ from django.views import View
 from django.views.generic import ListView, DetailView, View
 from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import F
+from django.db.models import F,Q
 
-from .models import User, Airport, Flight, Ticket, Seat
+from .models import User, Airport, Flight, Ticket, Seat,Passenger,Order
 from .permissions import IsAdminUser
 from .serializers import UserSerializer, FlightSerializer, TicketSerializer, AirportSerializer
 
@@ -176,35 +176,88 @@ class TicketPurchaseView(APIView):
 
     def post(self, request):
         flight_number = request.data.get('flight_number')
-        seat_type = request.data.get('seat_type')
+        n=request.data.get('count')
         if request.user.credits<=80:
-            return Response({"detail": "Insufficient credit score."}, status=status.HTTP_403_FORBIDDEN)
+                return Response({"detail": "Insufficient credit score."}, status=status.HTTP_403_FORBIDDEN)
         flight = Flight.objects.get(flight_number=flight_number)
-        try:
-            seat = Seat.objects.filter(flight=flight, type=seat_type, is_booked=False).order_by('seatnum').first()
-            if not seat:
-                return Response({'error': 'No seats of this type available'}, status=400)
+        vis=[]
+        tickets=[]
+        seats=[]
+        seatnums=[]
+        all_price=0
+        cnt=[0,0,0,0]
+        for i in range(1,n+1):
+            full_name=request.data.get('full_name_'+str(i))
+            id_card_number= request.data.get('id_card_number_'+str(i))
+            if id_card_number in vis:
+                return Response({'error': 'repeated people!'}, status=400)
+            vis.append(id_card_number)
+            seat_type = int(request.data.get('seat_type_'+str(i)))
 
-            ticket = Ticket.objects.create(flight=flight, customer=request.user, price=seat.price, status='1', seat=seat.seatnum)
-            ticket.save()
+            passenger=Passenger.objects.filter(id_card_number=id_card_number).first()
+            tickets=Ticket.objects.filter(passenger=passenger,flight=flight).exclude(status='4').first()
+            if(tickets):
+                return Response({'error': 'Passenger '+full_name+' have bought this flight!'}, status=400)
+            if(passenger is None ):
+                passenger, created = Passenger.objects.update_or_create(
+                    full_name=full_name,
+                    id_card_number=id_card_number
+                )
+            cnt[seat_type]+=1
+        for i in range(1,4):
+            if(cnt[i] > len(Seat.objects.filter(flight=flight, type=seat_type, is_booked=False))):
+                return Response({'error': 'No sufficient seats for type '+str(i)}, status=400)
+        
 
-            seat.is_booked = True
-            seat.save()
 
-            return Response({'message': 'Ticket Purchased', 'seat_number': seat.seatnum}, status=200)
-        except:
-            return Response({'error': 'No seats available'}, status=400)
+        order = Order.objects.create(flight=flight, customer=request.user,price=0) 
+        for i in range(1,n+1):
+            full_name=request.data.get('full_name_'+str(i))
+            id_card_number= request.data.get('id_card_number_'+str(i))
+            seat_type = request.data.get('seat_type_'+str(i))
+
+            passenger=Passenger.objects.filter(id_card_number=id_card_number).first()
+            if(passenger is None ):
+                passenger, created = Passenger.objects.update_or_create(
+                    full_name=full_name,
+                    id_card_number=id_card_number
+                )
+            
+
+            try:
+                seat = Seat.objects.filter(flight=flight, type=seat_type, is_booked=False).order_by('seatnum').first()
+                if not seat:
+                    message="No seats of this type available for passenger "+full_name
+                    return Response({'error': message}, status=400)
+                ticket = Ticket.objects.create(flight=flight, passenger=passenger, price=seat.price, status='1', seat=seat.seatnum)
+                ticket.save()
+                seat.is_booked=True
+                seat.save()
+                order.tickets.add(ticket)
+                #tickets.append(ticket)
+                all_price+=seat.price
+                #seats.append(seat)
+                seatnums.append(seat.seatnum)
+                
+            except:
+                return Response({'error': 'No sufficient seats'}, status=400)
+        
+        order.price=all_price
+        order.save()
+        return Response({'message': 'Ticket Purchased', 'seat_numbers': seatnums}, status=200)
     
 class CheckInRequestView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        id_card_number = request.data.get('id_card_number')
         flight_number = request.data.get('flight_number')
         flight = Flight.objects.filter(flight_number=flight_number).first()
-        if flight is None:
-            return Response({"detail": "Flight not found."}, status=status.HTTP_400_BAD_REQUEST)
+        passenger = Passenger.objects.filter(id_card_number =id_card_number ).first()
+        if passenger is None or flight is None:
+            return Response({"detail": "Passenger or Flight not found."}, status=status.HTTP_400_BAD_REQUEST)
 
-        ticket = Ticket.objects.filter(customer=request.user, flight=flight, status='1').first()
+        ticket = Ticket.objects.filter(passenger=passenger, flight=flight, status='1').first()
 
         if ticket is None:
             return Response({"detail": "Ticket not found."}, status=status.HTTP_400_BAD_REQUEST)
@@ -220,16 +273,16 @@ class CheckInView(APIView):
     permission_classes = [IsAdminUser]
 
     def post(self, request):
-        username = request.data.get('username')
+        id_card_number = request.data.get('id_card_number')
         flight_number = request.data.get('flight_number')
 
-        user = User.objects.filter(username=username).first()
+        passenger = Passenger.objects.filter(id_card_number =id_card_number ).first()
         flight = Flight.objects.filter(flight_number=flight_number).first()
 
-        if user is None or flight is None:
-            return Response({"detail": "User or Flight not found."}, status=status.HTTP_400_BAD_REQUEST)
+        if passenger is None or flight is None:
+            return Response({"detail": "Passenger or Flight not found."}, status=status.HTTP_400_BAD_REQUEST)
 
-        ticket = Ticket.objects.filter(customer=user, flight=flight, status='2').first()
+        ticket = Ticket.objects.filter(passenger=passenger, flight=flight, status='2').first()
 
         if ticket is None:
             return Response({"detail": "Ticket not found."}, status=status.HTTP_400_BAD_REQUEST)
@@ -237,8 +290,9 @@ class CheckInView(APIView):
 
         ticket.status = '3'  # 更新状态为已值机
         ticket.save()
-        user.credits+=10
-        user.save()
+        
+        request.user.credits+=10
+        request.user.save()
 
         return Response({"detail": "Check-in successful."}, status=status.HTTP_200_OK)
     
@@ -246,17 +300,19 @@ class TicketRefundView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        id_card_number = request.data.get('id_card_number')
         flight_number = request.data.get('flight_number')
 
+        passenger = Passenger.objects.filter(id_card_number =id_card_number ).first()
         flight = Flight.objects.filter(flight_number=flight_number).first()
 
-        if flight is None:
-            return Response({"detail": "Flight not found."}, status=status.HTTP_400_BAD_REQUEST)
+        if passenger is None or flight is None:
+            return Response({"detail": "Passenger or Flight not found."}, status=status.HTTP_400_BAD_REQUEST)
 
-        ticket = Ticket.objects.filter(customer=request.user, flight=flight, status='1').first()
+        ticket = Ticket.objects.filter(Q( status='1' ) | Q( status='2' ),passenger=passenger, flight=flight).first()
 
         if ticket is None:
-            return Response({"detail": "Ticket not found or already checked in."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Ticket not found."}, status=status.HTTP_400_BAD_REQUEST)
 
         ticket.status = '4'  # Update status to cancelled
         ticket.save()

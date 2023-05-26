@@ -37,6 +37,18 @@ class User(AbstractUser):
     travel_num = models.IntegerField(default=0)
     last_recover_date = models.DateField(null=True,blank=True)
 
+class Passenger(models.Model):
+    id_card_number = models.CharField(max_length=18, unique=True)
+    full_name = models.CharField(max_length=200)
+    email = models.EmailField()
+    phone_number = models.CharField(max_length=15)
+
+    # any other fields...
+
+    def __str__(self):
+        return self.full_name
+
+
 class Airport(models.Model):
     name = models.CharField(max_length=200, unique=True)
     city = models.CharField(max_length=200)
@@ -68,16 +80,25 @@ class Flight(models.Model):
     
 class Ticket(models.Model):
     flight = models.ForeignKey(Flight, on_delete=models.CASCADE)
-    customer = models.ForeignKey(User, on_delete=models.CASCADE)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
+    passenger = models.ForeignKey(Passenger, on_delete=models.CASCADE, default=None)
     seat = models.IntegerField(default=1)
     status = models.CharField(max_length=200,choices=Ticket_choices, default='1')
     date_of_purchase = models.DateTimeField(auto_now_add=True)
     food_option = models.CharField(max_length=200, default='None')
-
+    price = models.DecimalField(max_digits=10, decimal_places=2,default=0.00)
 
     def __str__(self):
-        return self.flight.flight_number + ' ' + self.customer.username + ' ' + self.seat
+        return self.flight.flight_number + ' ' + self.passenger.full_name + ' ' + self.seat
+
+class Order(models.Model):
+    flight = models.ForeignKey(Flight, on_delete=models.CASCADE)
+    customer = models.ForeignKey(User, on_delete=models.CASCADE)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    tickets = models.ManyToManyField(Ticket)
+
+    def __str__(self):
+        return self.flight.flight_number + ' ' + self.customer.username
+
     
 class Seat(models.Model):
     flight = models.ForeignKey(Flight, on_delete=models.CASCADE)
@@ -93,7 +114,7 @@ class Seat(models.Model):
         return not self.is_booked
 
     def __str__(self):
-        return self.flight.flight_number + ' ' + self.seat
+        return self.flight.flight_number + ' ' + self.seatnum
       
 
     
