@@ -1,0 +1,18 @@
+.title {
+    font-size:25px;
+    font-weight: bolder;
+    text-align: center;
+}
+.el-input--suffix {
+    width:200px;
+}
+.el-input-number {
+    width: 100px;
+}
+.el-row {
+    margin-top :20px;
+}
+
+.main-button{
+    width:200px;
+}
