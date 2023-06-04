@@ -19,6 +19,10 @@ from .views import (
     PassengerViewSet,
     TicketViewSet,
     CheckInRequestView,
+    SendEmailView,
+    UserChangeView,
+    UserRetrieveView,
+    CheckEmailView
 )
 
 app_name = 'core'
@@ -42,4 +46,8 @@ urlpatterns = [
     path('airport/create/',AirportCreateAPIView.as_view(),name="airport_create"),
     path('getcity/',get_city,name="getcity"),
     path('getairport/',get_airport,name="getairport"),
+    path('sendemail/',SendEmailView.as_view(),name="sendemail"),
+    path('retrieve/',UserRetrieveView.as_view(),name="retrieve"),
+    path('userchange/',UserChangeView.as_view(),name="userchange"),
+    path('checkemail/',CheckEmailView.as_view(),name="checkemail"),
 ] + router.urls
