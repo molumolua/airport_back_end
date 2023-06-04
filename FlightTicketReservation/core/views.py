@@ -119,7 +119,7 @@ class CheckEmailView(APIView):
         if(email==user.email):
             return Response({"flag":True,"message":"success"}, status=200)
         else:
-            return Response({"flag":False,"message":"email not equal"}, status=200)
+            return Response({"flag":False,"message":"email not equal"}, status=400)
  
 class UserChangeView(APIView):
     permission_classes = [IsAuthenticated]
