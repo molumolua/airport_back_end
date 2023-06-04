@@ -27,6 +27,36 @@ from rest_framework.permissions import AllowAny,IsAuthenticated
 from decimal import Decimal
 import csv
 import io
+import random
+from django.core.mail import send_mail
+from django.core.mail import send_mail  # 发送邮件模块
+from django.conf import settings    # setting.py添加的的配置信息
+
+# 注册发送邮箱验证码
+class SendEmailView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        email = request.data.get("email")
+        send_type=request.data.get("send_type")
+        code = '%06d' % random.randint(0, 999999)
+        send_status=-1
+        if send_type == "register":
+            email_title = "注册激活"
+            email_body = "您的邮箱注册验证码为：{0}, 该验证码有效时间为两分钟，请及时进行验证。".format(code)
+            # 发送邮件
+            send_status = send_mail(email_title, email_body, settings.EMAIL_FROM, [email])
+            if not send_status:
+                return False
+        if send_type == "retrieve":
+            email_title = "找回密码"
+            email_body = "您的邮箱注册验证码为：{0}, 该验证码有效时间为两分钟，请及时进行验证。".format(code)
+            # 发送邮件
+            send_status = send_mail(email_title, email_body, settings.EMAIL_FROM, [email])
+        if(send_status>0):
+            return Response({'message': 'successful send','code':code}, status=200)
+        else:
+            return Response({'error': 'unsuccessful send','code':'error'}, status=400)
+
 
 # Create your views here.
 

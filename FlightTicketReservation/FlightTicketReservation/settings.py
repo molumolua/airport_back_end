@@ -118,6 +118,15 @@ DATABASES = {
     }
 }
 
+# 发送邮箱验证码
+EMAIL_HOST = "smtp.163.com"     # 服务器
+EMAIL_PORT = 25                 # 一般情况下都为25
+EMAIL_HOST_USER = "airport_2121@163.com"     # 账号
+EMAIL_HOST_PASSWORD = "EFQISSJEBVUGCDWY"     # （上面保存的授权码）
+EMAIL_USE_TLS = True       # 一般都为False
+EMAIL_FROM = "airport_2121@163.com"      # 邮箱来自
+email_title = '邮箱激活'
+
 
 # Password validation
 # https://docs.djangoproject.com/en/4.1/ref/settings/#auth-password-validators
