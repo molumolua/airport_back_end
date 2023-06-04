@@ -58,6 +58,7 @@ class SendEmailView(APIView):
             return Response({'error': 'unsuccessful send','code':'error'}, status=400)
 
 
+
 # Create your views here.
 
 class UserRegisterView(APIView):
@@ -95,6 +96,34 @@ class UserLogoutView(APIView):
             return Response({'User logged out successfully'},status=200)
         else:
             raise NotAuthenticated("You are not logged in")
+
+class UserRetrieveView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
+        user=User.objects.filter(username=username).first()
+        if(user == None):
+            return Response({"message":"not found user"}, status=400) 
+        user.set_password(password)
+        user.save()
+        return Response({"message":"success"}, status=200)
+ 
+class UserChangeView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        password = request.data.get('password')
+        user_nickname=request.data.get("user_nickname")
+        email=request.data.get("email")
+        user=request.user
+        if(password!=None):
+            user.set_password(password)
+        if(user_nickname!=None):
+            user.user_nickname=user_nickname
+        if(email!=None):
+            user.email=email
+        user.save()
+        return Response({"message":"success"}, status=200)
 
     
 class UserDetailView(APIView):
@@ -314,7 +343,6 @@ class TicketPurchaseView(APIView):
                     id_card_number=id_card_number
                 )
 
-            cnt[seat_type]+=1
     
         for i in range(1,4):
             if(cnt[i] > len(Seat.objects.filter(flight=flight, type=seat_type, is_booked=False))):
