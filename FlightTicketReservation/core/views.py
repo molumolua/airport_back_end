@@ -143,26 +143,37 @@ class UserDetailView(APIView):
         return Response(serializer.data)
     
 class OrderViewSet(generics.ListAPIView):
-    queryset = Order.objects.all()
+    # queryset = Order.objects.all()
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = {'customer__username':['exact'],'flight__flight_number':['exact']}
+    # filterset_fields = {'customer__username':['exact'],'flight__flight_number':['exact']}
+    filterset_fields = ['customer__username']
+    
+    def get_queryset(self):
+        un = self.request.query_params.get('customer__username',None)
+        print(un)
+        queryset = Order.objects.filter(customer__username=un)
+        return queryset
+
     
 class PassengerViewSet(generics.ListAPIView):
-    queryset = Passenger.objects.all()
+    # queryset = Passenger.objects.all()
     serializer_class = PassengerSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = '__all__'
     def get_queryset(self):
-        queryset = Passenger.objects.exclude(ticket__status="4")
         flight_id = self.request.query_params.get('id', None)
+        queryset = Passenger.objects.filter(Q(ticket__status='1')|Q(ticket__status='2')|Q(ticket__status='3'),ticket__flight_id=flight_id)
+        
         if flight_id is not None:
             seat_subquery = Ticket.objects.filter(flight_id=flight_id,passenger=OuterRef('pk')).values('seat')
             status_subquery = Ticket.objects.filter(flight_id=flight_id,passenger=OuterRef('pk')).values('status')
+            ticketid_subquery = Ticket.objects.filter(flight_id=flight_id,passenger=OuterRef('pk')).values('id')
             queryset = queryset.filter(ticket__flight_id=flight_id).annotate(seat=Subquery(seat_subquery[:1]))
-            queryset = queryset.filter(ticket__flight_id=flight_id).annotate(status=Subquery(status_subquery))
+            queryset = queryset.annotate(status=Subquery(status_subquery))
+            queryset = queryset.annotate(ticketid=Subquery(ticketid_subquery))
         return queryset
 
 class TicketViewSet(viewsets.ModelViewSet):

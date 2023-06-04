@@ -131,9 +131,10 @@ class PassengerSerializer(serializers.ModelSerializer):
     email = serializers.CharField(required=False)
     seat = serializers.IntegerField(read_only=True)
     status = serializers.CharField(read_only = True)
+    ticketid = serializers.IntegerField(read_only = True)
     class Meta:
         model = Passenger
-        fields = ['id_card_number','full_name','email','phone_number','seat','status']
+        fields = ['id_card_number','full_name','email','phone_number','seat','status','ticketid']
 
 class OrderSerializer(serializers.ModelSerializer):
     tickets = TicketSerializer(many=True, read_only=True)
