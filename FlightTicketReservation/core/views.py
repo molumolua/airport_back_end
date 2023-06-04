@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from django.http import HttpResponse
+from django.http import HttpResponse,JsonResponse
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, logout, authenticate
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -10,9 +10,10 @@ from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F,Q
 
+
 from .models import User, Airport, Flight, Ticket, Seat,Passenger,Order
 from .permissions import IsAdminUser
-from .serializers import UserSerializer, FlightSerializer, TicketSerializer, AirportSerializer
+from .serializers import UserSerializer, FlightSerializer, TicketSerializer, AirportSerializer, OrderSerializer, PassengerSerializer
 
 from rest_framework import generics,viewsets,permissions,status
 from rest_framework.generics import CreateAPIView
@@ -22,8 +23,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import AllowAny,IsAuthenticated
+
+from decimal import Decimal
 import csv
 import io
+
 # Create your views here.
 
 class UserRegisterView(APIView):
@@ -68,12 +72,62 @@ class UserDetailView(APIView):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
     
+class OrderViewSet(generics.ListAPIView):
+    queryset = Order.objects.all()
+    serializer_class = OrderSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = {'customer__username':['exact'],'flight__flight_number':['exact']}
+    
+class PassengerViewSet(generics.ListAPIView):
+    queryset = Passenger.objects.all()
+    serializer_class = PassengerSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = {'id_card_number','full_name','email','phone_number'}
+
+class TicketViewSet(viewsets.ModelViewSet):
+    queryset = Ticket.objects.all()
+    serializer_class = TicketSerializer
+
+    def update(self, request, *args, **kwargs):
+        if request.user.is_staff:
+            return super().update(request, *args, **kwargs)
+        else:
+            # For non-admin users, allow only updates to 'food_option' field
+            partial_data = {'food_option': request.data.get('food_option', None)}
+            serializer = self.get_serializer(self.get_object(), data=partial_data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+
+            if getattr(self.get_object(), '_prefetched_objects_cache', None):
+                # If 'prefetch_related' has been applied to the queryset, we need to forcibly invalidate the prefetch cache.
+                self.get_object()._prefetched_objects_cache = {}
+
+            return Response(serializer.data)
+
 class FlightViewSet(generics.ListAPIView):
     queryset = Flight.objects.all()
     serializer_class = FlightSerializer
     permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['flight_number', 'departure_city', 'arrival_city', 'departure_time', 'arrival_time', 'price']
+
+    def get_queryset(self):
+        queryset = Flight.objects.all()
+        price_gte = self.request.query_params.get('price__gte', None)
+        if price_gte is not None:
+            price_gte = Decimal(price_gte)
+            queryset = queryset.filter(price__gte=price_gte)
+
+        price_lte = self.request.query_params.get('price__lte', None)
+        if price_lte is not None:
+            price_lte = Decimal(price_lte)
+            queryset = queryset.filter(price__lte=price_lte)
+
+        
+
+        return queryset
 
 
 class FlightAdminViewSet(viewsets.ModelViewSet):
@@ -97,6 +151,7 @@ class FlightAdminViewSet(viewsets.ModelViewSet):
         return response
     
     def update(self, request, *args, **kwargs):
+        print("update")
         flight = self.get_object()
         response = super().update(request, *args, **kwargs)
 
@@ -105,6 +160,19 @@ class FlightAdminViewSet(viewsets.ModelViewSet):
             Seat.objects.filter(flight=flight).update(is_booked=False)
 
         return response
+    
+    @action(detail=False, methods=['put'], url_path='flight_number/(?P<flight_number>\w+)')
+    def update_by_flight_number(self, request, flight_number=None):
+        flight = Flight.objects.get(flight_number=flight_number)
+        serializer = self.get_serializer(flight, data=request.data, partial=True)  # `partial=True` to make update partial
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        if flight.status == '3':
+            Ticket.objects.filter(flight=flight).update(status='3')
+            Seat.objects.filter(flight=flight).update(is_booked=False)
+
+        return Response(serializer.data)
     
     
     
@@ -150,8 +218,8 @@ class BulkFlightUpload(APIView):
         next(io_string)
 
         for column in csv.reader(io_string, delimiter=',', quotechar="|"):
-            departure_airport, created = Airport.objects.get_or_create(name=column[2])
-            arrival_airport, created = Airport.objects.get_or_create(name=column[4])
+            departure_airport, created = Airport.objects.get_or_create(IATA_code=column[2])
+            arrival_airport, created = Airport.objects.get_or_create(IATA_code=column[4])
 
             _, created = Flight.objects.update_or_create(
                 flight_number=column[0],
@@ -168,6 +236,8 @@ class BulkFlightUpload(APIView):
             )
 
         return Response(status=status.HTTP_201_CREATED)
+
+
 
 
     
@@ -188,9 +258,10 @@ class TicketPurchaseView(APIView):
         seatnums=[]
         all_price=0
         cnt=[0,0,0,0]
-        for i in range(1,n+1):
-            full_name=request.data.get('full_name_'+str(i))
-            id_card_number= request.data.get('id_card_number_'+str(i))
+        tickets = request.data.get('order')
+        for ticket in tickets:
+            full_name=ticket.get('full_name')
+            id_card_number=ticket.get('id_card_number')
             if not full_name:
                 return Response({"error":"full name not provided"},status=status.HTTP_400_BAD_REQUEST)
             if not id_card_number:
@@ -199,18 +270,22 @@ class TicketPurchaseView(APIView):
             if id_card_number in vis:
                 return Response({'error': 'repeated people!'}, status=400)
             vis.append(id_card_number)
-            seat_type = int(request.data.get('seat_type_'+str(i)))
-
+            seat_type = int(ticket.get('seat_type'))
+            cnt[seat_type]+=1
             passenger=Passenger.objects.filter(id_card_number=id_card_number).first()
-            tickets=Ticket.objects.filter(passenger=passenger,flight=flight).exclude(status='4').first()
-            if(tickets):
+            tickets_history=Ticket.objects.filter(passenger=passenger,flight=flight).exclude(status='4').first()
+            #如果买过票了
+            if(tickets_history):
                 return Response({'error': 'Passenger '+full_name+' have bought this flight!'}, status=400)
+            #如果没有这个人，创建一个
             if(passenger is None ):
                 passenger, created = Passenger.objects.update_or_create(
                     full_name=full_name,
                     id_card_number=id_card_number
                 )
+
             cnt[seat_type]+=1
+    
         for i in range(1,4):
             if(cnt[i] > len(Seat.objects.filter(flight=flight, type=seat_type, is_booked=False))):
                 return Response({'error': 'No sufficient seats for type '+str(i)}, status=400)
@@ -218,24 +293,16 @@ class TicketPurchaseView(APIView):
 
 
         order = Order.objects.create(flight=flight, customer=request.user,price=0) 
-        for i in range(1,n+1):
-            full_name=request.data.get('full_name_'+str(i))
-            id_card_number= request.data.get('id_card_number_'+str(i))
-            seat_type = request.data.get('seat_type_'+str(i))
+        for ticket in tickets:
+            full_name=ticket.get('full_name')
+            id_card_number= ticket.get('id_card_number')
+            seat_type = int(ticket.get('seat_type'))
 
             passenger=Passenger.objects.filter(id_card_number=id_card_number).first()
-            if(passenger is None ):
-                passenger, created = Passenger.objects.update_or_create(
-                    full_name=full_name,
-                    id_card_number=id_card_number
-                )
-            
 
             try:
                 seat = Seat.objects.filter(flight=flight, type=seat_type, is_booked=False).order_by('seatnum').first()
-                if not seat:
-                    message="No seats of this type available for passenger "+full_name
-                    return Response({'error': message}, status=400)
+                print(seat.price)
                 ticket = Ticket.objects.create(flight=flight, passenger=passenger, price=seat.price, status='1', seat=seat.seatnum)
                 ticket.save()
                 seat.is_booked=True
@@ -303,6 +370,8 @@ class CheckInView(APIView):
 
         return Response({"detail": "Check-in successful."}, status=status.HTTP_200_OK)
     
+
+
 class TicketRefundView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -332,6 +401,33 @@ class TicketRefundView(APIView):
         request.user.save()
 
         return Response({"detail": "Refund successful."}, status=status.HTTP_200_OK)
+
+#新增get_city方法，返回所有城市
+def get_city(request):
+    cities = Airport.get_city()
+    return JsonResponse({'cities': cities})
+
+#新增get_airport方法，返回所有机场
+def get_airport(request):
+    cities = Airport.objects.values('city','city_name').distinct()
+
+    city_airport_data = []
+
+    for city in cities:
+        city_airports = Airport.objects.filter(city=city['city'])
+        city_airport_list = [{'value':airport.IATA_code,'label':airport.name} for airport in city_airports]
+
+        city_data = {
+            'value': city['city'],
+            'label': city['city_name'],  
+            'children': city_airport_list,
+        }
+
+        city_airport_data.append(city_data)
+
+    return JsonResponse({'airports': city_airport_data})
+
+
 
 
 class AirportCreateAPIView(generics.CreateAPIView):

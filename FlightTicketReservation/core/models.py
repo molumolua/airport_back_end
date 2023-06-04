@@ -35,6 +35,7 @@ class User(AbstractUser):
     is_admin = models.BooleanField(default=False)
     credits = models.IntegerField(default=100)
     travel_num = models.IntegerField(default=0)
+    user_nickname = models.CharField(max_length=200, default=None)
     last_recover_date = models.DateField(null=True,blank=True)
 
 class Passenger(models.Model):
@@ -50,9 +51,23 @@ class Passenger(models.Model):
 
 
 class Airport(models.Model):
+    IATA_code = models.CharField(max_length=3, unique=True)
     name = models.CharField(max_length=200, unique=True)
     city = models.CharField(max_length=200)
+    city_name = models.CharField(max_length=200, default=None)
     country = models.CharField(max_length=200)
+
+    def get_city():
+        city_list = []
+
+        airports = Airport.objects.values('city','city_name').distinct()
+        for airport in airports:
+            city_list.append({'value':airport['city'],'label':airport['city_name']})
+        return city_list
+    
+
+
+    
 
     def __str__(self):
         return self.name + ' ' + self.city + ' ' + self.country
@@ -69,6 +84,7 @@ class Flight(models.Model):
     capacity = models.IntegerField(default=0)
     status = models.CharField(max_length=200,choices=Flight_choices, default='1')
     seats_remaining = models.IntegerField(default=None)
+    insurance = models.IntegerField(default=0)
 
     def save(self, *args, **kwargs):
         if self.seats_remaining is None:
@@ -84,7 +100,7 @@ class Ticket(models.Model):
     seat = models.IntegerField(default=1)
     status = models.CharField(max_length=200,choices=Ticket_choices, default='1')
     date_of_purchase = models.DateTimeField(auto_now_add=True)
-    food_option = models.CharField(max_length=200, default='None')
+    food_option = models.BooleanField(default=False)
     price = models.DecimalField(max_digits=10, decimal_places=2,default=0.00)
 
     def __str__(self):
