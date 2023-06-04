@@ -1,2 +1,2 @@
 -- SQLite
-select * from auth_user
+select * from core_ticket

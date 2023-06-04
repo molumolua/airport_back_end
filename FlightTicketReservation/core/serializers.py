@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import Flight, Ticket, Airport, Seat, Order, Passenger
-
+from datetime import datetime
 User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
@@ -56,6 +56,7 @@ class FlightSerializer(serializers.ModelSerializer):
     def get_arrival_time(self, obj): 
         return obj.arrival_time.strftime("%Y-%m-%d %H:%M") # convert to required format 
     
+    
 
     
     def get_economy_seats_available(self, obj):
@@ -93,11 +94,14 @@ class FlightSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         departure_airport_name = validated_data.pop('departure_airport', None)
         arrival_airport_name = validated_data.pop('arrival_airport', None)
+        departure_time = validated_data.pop('departure_time',None)
 
         if departure_airport_name is not None:
             instance.departure_airport = Airport.objects.get(IATA_code=departure_airport_name)
         if arrival_airport_name is not None:
             instance.arrival_airport = Airport.objects.get(IATA_code=arrival_airport_name)
+        if departure_time is not None:
+            instance.departure_time = datetime.strptime(departure_time, '%Y-%m-%d %H:%M') 
         
         return super().update(instance, validated_data)
 
@@ -106,7 +110,12 @@ class FlightSerializer(serializers.ModelSerializer):
 class TicketSerializer(serializers.ModelSerializer):
 
     flight = serializers.SlugRelatedField(slug_field='flight_number', read_only=True)
-    passenger = serializers.SlugRelatedField(slug_field='id_card_number', read_only=True)
+    passenger = serializers.SlugRelatedField(slug_field='full_name', read_only=True)
+
+    date_of_purchase = serializers.SerializerMethodField()
+
+    def get_date_of_purchase(self, obj): 
+        return obj.date_of_purchase.strftime("%Y-%m-%d %H:%M") # convert to required format 
 
     class Meta:
         model = Ticket
@@ -120,15 +129,31 @@ class SeatSerializer(serializers.ModelSerializer):
 class PassengerSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(required=False)
     email = serializers.CharField(required=False)
-
+    seat = serializers.IntegerField(read_only=True)
+    status = serializers.CharField(read_only = True)
     class Meta:
         model = Passenger
-        fields = ['id_card_number','full_name','email','phone_number']
+        fields = ['id_card_number','full_name','email','phone_number','seat','status']
 
 class OrderSerializer(serializers.ModelSerializer):
     tickets = TicketSerializer(many=True, read_only=True)
     customer = serializers.SlugRelatedField(slug_field='username', read_only=True)
     flight = serializers.SlugRelatedField(slug_field='flight_number', read_only=True)
+    departure_airport = serializers.SerializerMethodField()
+    arrival_airport = serializers.SerializerMethodField()
+    departure_time = serializers.SerializerMethodField()
+
+    def get_departure_airport(self, obj):
+        return obj.flight.departure_airport.name
+    def get_arrival_airport(self, obj):
+        return obj.flight.arrival_airport.name
+    def get_departure_time(self, obj):
+        return obj.flight.departure_time.strftime("%Y-%m-%d %H:%M")
+
+    # arrival_airport = Flight.objects.filter(flight_number=flight).values('arrival_airport')
+    # departure_time = Flight.objects.filter(flight_number=flight).values('departure_time')
+
+    
 
     class Meta:
         model = Order

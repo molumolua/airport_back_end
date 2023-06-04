@@ -20,8 +20,8 @@ Flight_choices = (
 Ticket_choices = (
     ('1', 'purchased'),
     ('2', 'pending check-in'),
-    ('2', 'checked in'),
-    ('3', 'cancelled'),
+    ('3', 'checked in'),
+    ('4', 'cancelled'),
 )
 Seat_choices = (
     ('1','First Class'),

@@ -7,8 +7,9 @@ from django.contrib.auth.decorators import login_required
 from django.views import View
 from django.views.generic import ListView, DetailView, View
 from django.utils.decorators import method_decorator
+from django.utils.timezone import make_aware
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import F,Q
+from django.db.models import F,Q,Subquery,OuterRef
 
 
 from .models import User, Airport, Flight, Ticket, Seat,Passenger,Order
@@ -27,7 +28,7 @@ from rest_framework.permissions import AllowAny,IsAuthenticated
 from decimal import Decimal
 import csv
 import io
-
+from datetime import datetime
 # Create your views here.
 
 class UserRegisterView(APIView):
@@ -84,7 +85,16 @@ class PassengerViewSet(generics.ListAPIView):
     serializer_class = PassengerSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = {'id_card_number','full_name','email','phone_number'}
+    filterset_fields = '__all__'
+    def get_queryset(self):
+        queryset = Passenger.objects.exclude(ticket__status="4")
+        flight_id = self.request.query_params.get('id', None)
+        if flight_id is not None:
+            seat_subquery = Ticket.objects.filter(flight_id=flight_id,passenger=OuterRef('pk')).values('seat')
+            status_subquery = Ticket.objects.filter(flight_id=flight_id,passenger=OuterRef('pk')).values('status')
+            queryset = queryset.filter(ticket__flight_id=flight_id).annotate(seat=Subquery(seat_subquery[:1]))
+            queryset = queryset.filter(ticket__flight_id=flight_id).annotate(status=Subquery(status_subquery))
+        return queryset
 
 class TicketViewSet(viewsets.ModelViewSet):
     queryset = Ticket.objects.all()
@@ -115,6 +125,11 @@ class FlightViewSet(generics.ListAPIView):
 
     def get_queryset(self):
         queryset = Flight.objects.all()
+        date = self.request.query_params.get('date', None)
+
+        if date is not None:
+            # date = datetime.strptime(date, '%Y-%m-%d').date()
+            queryset = queryset.filter(departure_time__date=date)
         price_gte = self.request.query_params.get('price__gte', None)
         if price_gte is not None:
             price_gte = Decimal(price_gte)
@@ -128,6 +143,8 @@ class FlightViewSet(generics.ListAPIView):
         
 
         return queryset
+    
+    
 
 
 class FlightAdminViewSet(viewsets.ModelViewSet):
@@ -153,10 +170,23 @@ class FlightAdminViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         print("update")
         flight = self.get_object()
-        response = super().update(request, *args, **kwargs)
+        departure_time_str = request.data.get('departure_time', '') 
+        if departure_time_str: # assuming the string is in the format: 'yyyy-mm-dd hh:mm' 
+            departure_time = datetime.strptime(departure_time_str, '%Y-%m-%d %H:%M') 
+            request.data['departure_time'] = departure_time
+            print(request.data['departure_time'])
 
+        arrival_time_str = request.data.get('arrival_time', '') 
+        if arrival_time_str: # assuming the string is in the format: 'yyyy-mm-dd hh:mm' 
+            arrival_time = datetime.strptime(arrival_time_str, '%Y-%m-%d %H:%M') 
+            request.data['arrival_time'] = arrival_time
+
+        
+        Flight.objects.filter(id=self.kwargs['pk']).update(departure_time=departure_time)
+        Flight.objects.filter(id=self.kwargs['pk']).update(arrival_time=arrival_time)
+        response = super().update(request, *args, **kwargs)
         if flight.status == '3':
-            Ticket.objects.filter(flight=flight).update(status='3')
+            Ticket.objects.filter(flight=flight).update(status='4')
             Seat.objects.filter(flight=flight).update(is_booked=False)
 
         return response
@@ -221,18 +251,21 @@ class BulkFlightUpload(APIView):
             departure_airport, created = Airport.objects.get_or_create(IATA_code=column[2])
             arrival_airport, created = Airport.objects.get_or_create(IATA_code=column[4])
 
+            departure_time = make_aware(datetime.strptime(column[5], '%Y-%m-%d %H:%M')) 
+            arrival_time = make_aware(datetime.strptime(column[6], '%Y-%m-%d %H:%M')) 
+
             _, created = Flight.objects.update_or_create(
                 flight_number=column[0],
                 departure_city=column[1],
                 departure_airport=departure_airport,
                 arrival_city=column[3],
                 arrival_airport=arrival_airport,
-                departure_time=column[5],
-                arrival_time=column[6],
-                price=column[7],
-                capacity=column[8],
-                status=column[9],
-                seats_remaining=column[10]
+                departure_time=departure_time,
+                arrival_time=arrival_time,
+                price=int(column[7]),
+                capacity=int(column[8]),
+                insurance=int(column[9]),
+                # seats_remaining=column[10]
             )
 
         return Response(status=status.HTTP_201_CREATED)
@@ -245,11 +278,10 @@ class TicketPurchaseView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        flight_number = request.data.get('flight_number')
-        n=request.data.get('count')
+        flight_id = request.data.get('id')
         if request.user.credits<=80:
                 return Response({"detail": "Insufficient credit score."}, status=status.HTTP_403_FORBIDDEN)
-        flight = Flight.objects.filter(flight_number=flight_number).exclude(status="3").first()
+        flight = Flight.objects.filter(id=flight_id).exclude(status="3").first()
         if not flight:
             return Response({'error': 'Flight does not exist!'}, status=status.HTTP_404_NOT_FOUND)
         vis=[]
@@ -284,10 +316,11 @@ class TicketPurchaseView(APIView):
                     id_card_number=id_card_number
                 )
 
-            cnt[seat_type]+=1
     
         for i in range(1,4):
             if(cnt[i] > len(Seat.objects.filter(flight=flight, type=seat_type, is_booked=False))):
+                print(len(Seat.objects.filter(flight=flight, type=seat_type, is_booked=False)))
+                print(cnt[i])
                 return Response({'error': 'No sufficient seats for type '+str(i)}, status=400)
         
 
@@ -324,14 +357,11 @@ class CheckInRequestView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        id_card_number = request.data.get('id_card_number')
-        flight_number = request.data.get('flight_number')
-        flight = Flight.objects.filter(flight_number=flight_number).first()
-        passenger = Passenger.objects.filter(id_card_number =id_card_number ).first()
-        if passenger is None or flight is None:
-            return Response({"detail": "Passenger or Flight not found."}, status=status.HTTP_400_BAD_REQUEST)
+        # id_card_number = request.data.get('id_card_number')
+        # flight_number = request.data.get('flight_number')
+        id = request.data.get('id')
 
-        ticket = Ticket.objects.filter(passenger=passenger, flight=flight, status='1').first()
+        ticket = Ticket.objects.filter(id=id, status='1').first()
 
         if ticket is None:
             return Response({"detail": "Ticket not found."}, status=status.HTTP_400_BAD_REQUEST)
@@ -347,16 +377,9 @@ class CheckInView(APIView):
     permission_classes = [IsAdminUser]
 
     def post(self, request):
-        id_card_number = request.data.get('id_card_number')
-        flight_number = request.data.get('flight_number')
+        id = request.data.get('id')
 
-        passenger = Passenger.objects.filter(id_card_number =id_card_number ).first()
-        flight = Flight.objects.filter(flight_number=flight_number).first()
-
-        if passenger is None or flight is None:
-            return Response({"detail": "Passenger or Flight not found."}, status=status.HTTP_400_BAD_REQUEST)
-
-        ticket = Ticket.objects.filter(passenger=passenger, flight=flight, status='2').first()
+        ticket = Ticket.objects.filter(id=id, status='2').first()
 
         if ticket is None:
             return Response({"detail": "Ticket not found."}, status=status.HTTP_400_BAD_REQUEST)
@@ -376,16 +399,11 @@ class TicketRefundView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        id_card_number = request.data.get('id_card_number')
-        flight_number = request.data.get('flight_number')
+        id = request.data.get('id')
 
-        passenger = Passenger.objects.filter(id_card_number =id_card_number ).first()
-        flight = Flight.objects.filter(flight_number=flight_number).first()
+        flight = Flight.objects.filter(id=id).first()
 
-        if passenger is None or flight is None:
-            return Response({"detail": "Passenger or Flight not found."}, status=status.HTTP_400_BAD_REQUEST)
-
-        ticket = Ticket.objects.filter(Q( status='1' ) | Q( status='2' ),passenger=passenger, flight=flight).first()
+        ticket = Ticket.objects.filter(Q( status='1' ) | Q( status='2' ),id=id).first()
 
         if ticket is None:
             return Response({"detail": "Ticket not found."}, status=status.HTTP_400_BAD_REQUEST)
