@@ -22,6 +22,7 @@ from .views import (
     SendEmailView,
     UserChangeView,
     UserRetrieveView,
+    CheckEmailView,
 )
 
 app_name = 'core'
@@ -48,5 +49,5 @@ urlpatterns = [
     path('sendemail/',SendEmailView.as_view(),name="sendemail"),
     path('retrieve/',UserRetrieveView.as_view(),name="retrieve"),
     path('userchange/',UserChangeView.as_view(),name="userchange"),
-
+    path('checkemail/',CheckEmailView.as_view(),name="checkemail"),
 ] + router.urls

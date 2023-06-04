@@ -108,6 +108,18 @@ class UserRetrieveView(APIView):
         user.set_password(password)
         user.save()
         return Response({"message":"success"}, status=200)
+class CheckEmailView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        username = request.data.get('username')
+        email = request.data.get('email')
+        user=User.objects.filter(username=username).first()
+        if(user == None):
+            return Response({"flag":False,"message":"not found user"}, status=400) 
+        if(email==user.email):
+            return Response({"flag":True,"message":"success"}, status=200)
+        else:
+            return Response({"flag":False,"message":"email not equal"}, status=200)
  
 class UserChangeView(APIView):
     permission_classes = [IsAuthenticated]
