@@ -29,6 +29,36 @@ from decimal import Decimal
 import csv
 import io
 from datetime import datetime
+import random
+from django.core.mail import send_mail
+from django.core.mail import send_mail  # 发送邮件模块
+from django.conf import settings    # setting.py添加的的配置信息
+
+# 注册发送邮箱验证码
+class SendEmailView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        email = request.data.get("email")
+        send_type=request.data.get("send_type")
+        code = '%06d' % random.randint(0, 999999)
+        send_status=-1
+        if send_type == "register":
+            email_title = "注册激活"
+            email_body = "您的邮箱注册验证码为：{0}, 该验证码有效时间为两分钟，请及时进行验证。".format(code)
+            # 发送邮件
+            send_status = send_mail(email_title, email_body, settings.EMAIL_FROM, [email])
+            if not send_status:
+                return False
+        if send_type == "retrieve":
+            email_title = "找回密码"
+            email_body = "您的邮箱注册验证码为：{0}, 该验证码有效时间为两分钟，请及时进行验证。".format(code)
+            # 发送邮件
+            send_status = send_mail(email_title, email_body, settings.EMAIL_FROM, [email])
+        if(send_status>0):
+            return Response({'message': 'successful send','code':code}, status=200)
+        else:
+            return Response({'error': 'unsuccessful send','code':'error'}, status=400)
+
 # Create your views here.
 
 class UserRegisterView(APIView):
@@ -67,7 +97,46 @@ class UserLogoutView(APIView):
         else:
             raise NotAuthenticated("You are not logged in")
 
-    
+class UserRetrieveView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
+        user=User.objects.filter(username=username).first()
+        if(user == None):
+            return Response({"message":"not found user"}, status=400) 
+        user.set_password(password)
+        user.save()
+        return Response({"message":"success"}, status=200)
+class CheckEmailView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        username = request.data.get('username')
+        email = request.data.get('email')
+        user=User.objects.filter(username=username).first()
+        if(user == None):
+            return Response({"flag":False,"message":"not found user"}, status=400) 
+        if(email==user.email):
+            return Response({"flag":True,"message":"success"}, status=200)
+        else:
+            return Response({"flag":False,"message":"email not equal"}, status=400)
+ 
+class UserChangeView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        password = request.data.get('password')
+        user_nickname=request.data.get("user_nickname")
+        email=request.data.get("email")
+        user=request.user
+        if(password!=None):
+            user.set_password(password)
+        if(user_nickname!=None):
+            user.user_nickname=user_nickname
+        if(email!=None):
+            user.email=email
+        user.save()
+        return Response({"message":"success"}, status=200)
+
 class UserDetailView(APIView):
     def get(self, request):
         serializer = UserSerializer(request.user)
