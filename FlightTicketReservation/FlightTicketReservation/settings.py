@@ -117,8 +117,8 @@ DATABASES = {
         'NAME': 'airport',
         'USER': 'root',
         'PASSWORD': 'Kanon552',
-        #'HOST': '127.0.0.1',
-        'HOST': '101.43.253.121',
+        'HOST': '127.0.0.1',
+        #'HOST': '101.43.253.121',
         'PORT': '3306',
     }
 }
